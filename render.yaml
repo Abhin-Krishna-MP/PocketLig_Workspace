@@ -19,8 +19,6 @@ services:
   - type: web
     name: pocketlig-studio
     runtime: static
-    plan: free
-    region: oregon
     buildCommand: cd pocketlig/web && npm install && npm run build
     staticPublishPath: pocketlig/web/dist
     routes:
