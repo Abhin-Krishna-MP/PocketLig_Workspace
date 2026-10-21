@@ -15,20 +15,21 @@ services:
       - key: PYTHONPATH
         value: src:.
 
-  # ─── Static Frontend (or deploy on Vercel) ───
-  - type: static
+  # ─── Static Frontend Studio ───
+  - type: web
     name: pocketlig-studio
+    runtime: static
     plan: free
     region: oregon
     buildCommand: cd pocketlig/web && npm install && npm run build
     staticPublishPath: pocketlig/web/dist
     routes:
       - type: rewrite
-        source: /targets/*
-        destination: https://pocketlig-api.onrender.com/targets/*
-      - type: rewrite
-        source: /jobs/*
-        destination: https://pocketlig-api.onrender.com/jobs/*
-      - type: rewrite
         source: /*
         destination: /index.html
+    envVars:
+      - key: VITE_API_BASE
+        fromService:
+          type: web
+          name: pocketlig-api
+          property: host
