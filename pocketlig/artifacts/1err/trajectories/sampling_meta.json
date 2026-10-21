@@ -1,0 +1,16 @@
+{
+  "checkpoint": "./pretrained_models/pretrained_diffusion.pt",
+  "checkpoint_sha256": "8977821339ba31b7103b46835ef4ddbf7f15f3f2efc5cb1f2a405e7905b09db6",
+  "num_steps": 100,
+  "seed": 42,
+  "chunk": 1,
+  "torch": "2.1.0+cu118",
+  "pdb_path": "/home/abhin-krishna-m-p/pocketlig_workspace/pocketlig/artifacts/1err/pocket.pdb",
+  "chunks": [
+    {
+      "start": 11,
+      "n": 1,
+      "seconds": 27.1
+    }
+  ]
+}

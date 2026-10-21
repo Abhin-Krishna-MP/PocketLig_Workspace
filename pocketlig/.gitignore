@@ -1,0 +1,17 @@
+/data/
+*.pt
+__pycache__/
+.venv/
+node_modules/
+web/dist/
+runs/
+*.log
+*.zip
+*.tar.gz
+
+# Trajectory binary frames (keep final.sdf and frames.json)
+artifacts/*/trajectories/*/*.npz
+artifacts/*/apbs_work/
+artifacts/*/*.dx
+artifacts/*/*.pqr
+io.mc

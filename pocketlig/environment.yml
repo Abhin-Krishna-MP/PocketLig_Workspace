@@ -1,0 +1,11 @@
+name: pocketlig
+channels: [conda-forge, bioconda, defaults]
+dependencies:
+  - python=3.10
+  - mmseqs2
+  - apbs
+  - openbabel
+  - pip
+  - pip:
+      - -r requirements.txt
+# torch / torch_geometric are installed separately: see docs/ENVIRONMENT.md

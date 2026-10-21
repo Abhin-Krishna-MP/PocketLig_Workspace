@@ -1,0 +1,54 @@
+# Python environments & caches
+.venv/
+pocketlig/.venv/
+node_modules/
+pocketlig/web/node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Large binaries, models & archives
+*.zip
+*.tar.gz
+*.tgz
+colab_workspace.zip
+pocketlab_*.zip
+*.pt
+*.pth
+*.ckpt
+targetdiff/pretrained_models/
+
+# Datasets and benchmark raw directories (>100MB)
+data/
+pocketlig/data/
+CASF-2016/
+coreset/
+pocketlig/CASF-2016/
+pocketlig/coreset/
+targetdiff/data/
+data/pdbqt_cache/
+
+# Volumetric electrostatic potential grids (>20MB - 173MB) & APBS scratch
+*.dx
+*.pqr
+apbs_work/
+pocketlig/artifacts/*/apbs_work/
+pocketlig/artifacts/*/*.dx
+pocketlig/artifacts/*/*.pqr
+pocketlig/artifacts/*/trajectories/*/*.npz
+
+# Training runs & logs
+runs/
+pocketlig/runs/
+*.log
+pocketlig/*.log
+
+# Build outputs
+web/dist/
+pocketlig/web/dist/
+dist/
+build/
+.DS_Store
+io.mc
+pocketlig/io.mc

@@ -1,0 +1,43 @@
+{
+  "steps": {
+    "prepare": {
+      "residues_before": 632,
+      "residues_after": 304,
+      "removed": 328,
+      "pocket_residues": 59,
+      "pocket_cutoff_A": 10.0,
+      "reference_ligand": "GWS",
+      "seconds": 0.2
+    },
+    "export": {
+      "molecules_exported": 10,
+      "seconds": 0.0
+    },
+    "eval": {
+      "n_valid": 8,
+      "n_files": 8,
+      "seconds": 17.0
+    }
+  },
+  "target_id": "5r84",
+  "source": "RCSB PDB 5R84",
+  "date": "2026-10-21",
+  "versions": {
+    "python": "3.11.17",
+    "torch": "2.5.1+cu121",
+    "rdkit": "2026.09.1",
+    "Bio": "1.88",
+    "numpy": "2.4.6",
+    "torch_geometric": "2.8.1"
+  },
+  "electrostatics": {
+    "force_field": "AMBER",
+    "ph": 7.0
+  },
+  "generator": {
+    "checkpoint": "./pretrained_models/pretrained_diffusion.pt",
+    "checkpoint_sha256": "8977821339ba31b7103b46835ef4ddbf7f15f3f2efc5cb1f2a405e7905b09db6",
+    "num_steps": 1000,
+    "seed": 2021
+  }
+}
