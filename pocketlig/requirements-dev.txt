@@ -1,0 +1,10 @@
+# Offline training, docking, benchmarking & test dependencies
+-r requirements.txt
+pandas
+scikit-learn
+pytest
+pyyaml
+posebusters
+meeko
+vina
+pdb2pqr

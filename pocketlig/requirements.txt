@@ -1,16 +1,9 @@
-# Python 3.10-3.12. Install torch + PyG first from the official wheels for YOUR CUDA (see docs/ENVIRONMENT.md).
-numpy
-pandas
-scipy
-scikit-learn
-biopython
-rdkit
-fastapi
-uvicorn[standard]
-httpx
-pytest
-pyyaml
-posebusters
-meeko
-vina
-pdb2pqr
+# Production runtime dependencies for PocketLig FastAPI service on cloud/Render
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+biopython>=1.80
+rdkit>=2023.3.1
+httpx>=0.27.0
