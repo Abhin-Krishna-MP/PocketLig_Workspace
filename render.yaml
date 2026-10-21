@@ -32,4 +32,4 @@ services:
         fromService:
           type: web
           name: pocketlig-api
-          property: host
+          envVarKey: RENDER_EXTERNAL_URL
