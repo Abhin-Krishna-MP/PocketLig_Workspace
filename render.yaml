@@ -1,0 +1,34 @@
+services:
+  # ─── FastAPI Backend Service ───
+  - type: web
+    name: pocketlig-api
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r pocketlig/requirements.txt
+    startCommand: cd pocketlig && python -m uvicorn pocketlig.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: POCKETLIG_ARTIFACTS
+        value: artifacts
+      - key: PYTHONPATH
+        value: src:.
+
+  # ─── Static Frontend (or deploy on Vercel) ───
+  - type: static
+    name: pocketlig-studio
+    plan: free
+    region: oregon
+    buildCommand: cd pocketlig/web && npm install && npm run build
+    staticPublishPath: pocketlig/web/dist
+    routes:
+      - type: rewrite
+        source: /targets/*
+        destination: https://pocketlig-api.onrender.com/targets/*
+      - type: rewrite
+        source: /jobs/*
+        destination: https://pocketlig-api.onrender.com/jobs/*
+      - type: rewrite
+        source: /*
+        destination: /index.html

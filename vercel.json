@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd pocketlig/web && npm install && npm run build",
+  "outputDirectory": "pocketlig/web/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

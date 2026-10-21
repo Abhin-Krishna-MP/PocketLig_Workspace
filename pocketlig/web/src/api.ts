@@ -1,4 +1,4 @@
-export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8008';
+export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
 export interface TargetSummary { id: string; source: string | null; date: string | null; n_molecules: number; has_potential: boolean }
 export interface MoleculeRow {
