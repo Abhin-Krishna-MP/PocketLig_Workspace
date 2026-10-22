@@ -1103,8 +1103,9 @@ function AnalyzeView({
    DATASET VIEW COMPONENT
    ═══════════════════════════════════════════════════════════ */
 const DATASET_META: Record<string, { organism: string; resolution: string; class_: string }> = {
-  '1hvr': { organism: 'HIV-1', resolution: '2.00 Å', class_: 'Protease' },
+  '6lu7': { organism: 'SARS-CoV-2', resolution: '2.16 Å', class_: 'Main Protease (Mpro)' },
   '5r84': { organism: 'SARS-CoV-2', resolution: '1.27 Å', class_: 'Cysteine Protease' },
+  '1hvr': { organism: 'HIV-1', resolution: '2.00 Å', class_: 'Protease' },
   '3erk': { organism: 'H. sapiens', resolution: '2.40 Å', class_: 'Kinase' },
   '1fin': { organism: 'H. sapiens', resolution: '2.05 Å', class_: 'Cyclin-dependent Kinase' },
   '1err': { organism: 'H. sapiens', resolution: '3.10 Å', class_: 'Nuclear Receptor' },

@@ -1,0 +1,28 @@
+{
+  "steps": {
+    "prepare": {
+      "residues_before": 396,
+      "residues_after": 309,
+      "removed": 87,
+      "pocket_residues": 19,
+      "pocket_cutoff_A": 10.0,
+      "reference_ligand": "02J",
+      "seconds": 0.9
+    }
+  },
+  "target_id": "6lu7",
+  "source": "RCSB PDB 6LU7",
+  "date": "2026-10-22",
+  "versions": {
+    "python": "3.11.17",
+    "torch": "2.5.1+cu121",
+    "rdkit": "2026.09.1",
+    "Bio": "1.88",
+    "numpy": "2.4.6",
+    "torch_geometric": "2.8.1"
+  },
+  "electrostatics": {
+    "force_field": "AMBER",
+    "ph": 7.0
+  }
+}
