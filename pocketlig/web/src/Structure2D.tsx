@@ -17,8 +17,17 @@ export function Structure2D({ smiles }: { smiles?: string }) {
     setSvg(null); setError(null);
     if (!smiles) return;
     getRDKit().then((rd: any) => {
-      const mol = rd.get_mol(smiles);
-      if (!mol || !mol.is_valid()) { if (alive) setError('RDKit could not read this SMILES'); if (mol) mol.delete(); return; }
+      let mol = rd.get_mol(smiles);
+      if (!mol || !mol.is_valid()) {
+        try {
+          mol = rd.get_mol(smiles, JSON.stringify({ sanitize: false }));
+        } catch {}
+      }
+      if (!mol || !mol.is_valid()) {
+        if (alive) setError('Diffusion conformer with non-standard valence (inspect in 3D)');
+        if (mol) mol.delete();
+        return;
+      }
       const out: string = mol.get_svg_with_highlights(JSON.stringify({ width: 300, height: 220, backgroundColour: [0, 0, 0, 0] }));
       mol.delete();
       if (alive) setSvg(out.replaceAll('#000000', '#e8ecf5'));

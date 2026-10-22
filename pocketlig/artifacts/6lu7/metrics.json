@@ -1,0 +1,90 @@
+{
+  "n_files": 2,
+  "n_valid": 2,
+  "uniqueness": 1.0,
+  "diversity": 0.9473684210526316,
+  "molecules": [
+    {
+      "file": "/home/abhin-krishna-m-p/pocketlig_workspace/pocketlig/artifacts/6lu7/trajectories/mol_0/final.sdf",
+      "valid": true,
+      "errors": {
+        "vina_score_only": "RuntimeError: no receptor_pdbqt given"
+      },
+      "qed": 0.17993786812247914,
+      "sa": 7.531729555059024,
+      "n_heavy": 10,
+      "smiles": "FSP(Cl)[S@@+]1S[N@@+]1(F)Cl.[F].[H]",
+      "vina_score_only": null,
+      "gnina_affinity": 70.13937,
+      "gnina_cnn_score": 0.33291,
+      "gnina_cnn_affinity": 1.9039,
+      "posebusters": {
+        "mol_pred_loaded": true,
+        "mol_cond_loaded": true,
+        "sanitization": true,
+        "inchi_convertible": true,
+        "all_atoms_connected": false,
+        "no_radicals": false,
+        "bond_lengths": false,
+        "bond_angles": false,
+        "internal_steric_clash": false,
+        "aromatic_ring_flatness": true,
+        "non-aromatic_ring_non-flatness": true,
+        "double_bond_flatness": true,
+        "internal_energy": false,
+        "protein-ligand_maximum_distance": true,
+        "minimum_distance_to_protein": false,
+        "minimum_distance_to_organic_cofactors": true,
+        "minimum_distance_to_inorganic_cofactors": true,
+        "minimum_distance_to_waters": true,
+        "volume_overlap_with_protein": false,
+        "volume_overlap_with_organic_cofactors": true,
+        "volume_overlap_with_inorganic_cofactors": true,
+        "volume_overlap_with_waters": true
+      },
+      "posebusters_all_pass": false,
+      "gnn_pk": 3.536931037902832
+    },
+    {
+      "file": "/home/abhin-krishna-m-p/pocketlig_workspace/pocketlig/artifacts/6lu7/trajectories/mol_1/final.sdf",
+      "valid": true,
+      "errors": {
+        "vina_score_only": "RuntimeError: no receptor_pdbqt given"
+      },
+      "qed": 0.25146311703256913,
+      "sa": 7.605605789294346,
+      "n_heavy": 9,
+      "smiles": "[N]Cl.[N][C@]12OO[S@@+]1[P]2.[OH]",
+      "vina_score_only": null,
+      "gnina_affinity": 80.44741,
+      "gnina_cnn_score": 0.14881,
+      "gnina_cnn_affinity": 1.78978,
+      "posebusters": {
+        "mol_pred_loaded": true,
+        "mol_cond_loaded": true,
+        "sanitization": true,
+        "inchi_convertible": false,
+        "all_atoms_connected": false,
+        "no_radicals": false,
+        "bond_lengths": false,
+        "bond_angles": false,
+        "internal_steric_clash": false,
+        "aromatic_ring_flatness": true,
+        "non-aromatic_ring_non-flatness": true,
+        "double_bond_flatness": true,
+        "internal_energy": true,
+        "protein-ligand_maximum_distance": true,
+        "minimum_distance_to_protein": false,
+        "minimum_distance_to_organic_cofactors": true,
+        "minimum_distance_to_inorganic_cofactors": true,
+        "minimum_distance_to_waters": true,
+        "volume_overlap_with_protein": false,
+        "volume_overlap_with_organic_cofactors": true,
+        "volume_overlap_with_inorganic_cofactors": true,
+        "volume_overlap_with_waters": true
+      },
+      "posebusters_all_pass": false,
+      "gnn_pk": 4.089021682739258
+    }
+  ]
+}

@@ -68,10 +68,47 @@ def npz_to_frontend_json(npz_path: str | Path, out_path: str | Path) -> dict:
 
 
 def mol_from_final_frame(positions: np.ndarray, atomic_numbers: np.ndarray):
-    """Infer bonds for the final frame with RDKit. Returns (mol or None, error or None)."""
+    """Infer bonds for the final frame with OpenBabel / RDKit. Returns (mol or None, error or None)."""
     from rdkit import Chem
     from rdkit.Chem import rdDetermineBonds
 
+    # 1. Try OpenBabel ConnectTheDots + PerceiveBondOrders if available
+    try:
+        from openbabel import openbabel as ob
+        ob_mol = ob.OBMol()
+        for an, p in zip(atomic_numbers, positions):
+            a = ob_mol.NewAtom()
+            a.SetAtomicNum(int(an))
+            a.SetVector(float(p[0]), float(p[1]), float(p[2]))
+        ob_mol.ConnectTheDots()
+        ob_mol.PerceiveBondOrders()
+        conv = ob.OBConversion()
+        conv.SetOutFormat("sdf")
+        sdf_str = conv.WriteString(ob_mol)
+        rd_mol = Chem.MolFromMolBlock(sdf_str, sanitize=False)
+        if rd_mol is not None:
+            for atom in rd_mol.GetAtoms():
+                an = atom.GetAtomicNum()
+                ev = atom.GetTotalValence()
+                if an == 7 and ev == 4:
+                    atom.SetFormalCharge(1)
+                elif an == 8 and ev == 3:
+                    atom.SetFormalCharge(1)
+                elif an == 16 and ev == 3:
+                    atom.SetFormalCharge(1)
+            try:
+                Chem.SanitizeMol(rd_mol)
+                return rd_mol, None
+            except Exception:
+                try:
+                    Chem.SanitizeMol(rd_mol, Chem.SANITIZE_ALL ^ Chem.SANITIZE_KEKULIZE)
+                    return rd_mol, None
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Fallback to rdDetermineBonds
     rw = Chem.RWMol()
     for z in atomic_numbers:
         rw.AddAtom(Chem.Atom(int(z)))
@@ -82,6 +119,15 @@ def mol_from_final_frame(positions: np.ndarray, atomic_numbers: np.ndarray):
     mol = rw.GetMol()
     try:
         rdDetermineBonds.DetermineConnectivity(mol)
+        for atom in mol.GetAtoms():
+            an = atom.GetAtomicNum()
+            ev = atom.GetTotalValence()
+            if an == 7 and ev == 4:
+                atom.SetFormalCharge(1)
+            elif an == 8 and ev == 3:
+                atom.SetFormalCharge(1)
+            elif an == 16 and ev == 3:
+                atom.SetFormalCharge(1)
         try:
             Chem.SanitizeMol(mol)
         except Exception:

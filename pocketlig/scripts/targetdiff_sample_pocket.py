@@ -119,6 +119,15 @@ def main():
                         conf.SetAtomPosition(ai, tuple(float(v) for v in ap))
                     rw.AddConformer(conf)
                     rdDetermineBonds.DetermineConnectivity(rw)
+                    for atom in rw.GetAtoms():
+                        an = atom.GetAtomicNum()
+                        ev = atom.GetTotalValence()
+                        if an == 7 and ev == 4:
+                            atom.SetFormalCharge(1)
+                        elif an == 8 and ev == 3:
+                            atom.SetFormalCharge(1)
+                        elif an == 16 and ev == 3:
+                            atom.SetFormalCharge(1)
                     mol = rw.GetMol()
                     try:
                         Chem.SanitizeMol(mol, Chem.SANITIZE_ALL ^ Chem.SANITIZE_KEKULIZE)
