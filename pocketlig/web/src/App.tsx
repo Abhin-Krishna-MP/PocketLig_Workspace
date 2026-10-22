@@ -339,7 +339,7 @@ function AnalyzeView({
   target: string | null;
   targets?: TargetSummary[];
   onSelectTarget?: (id: string) => void;
-  onInspect: (idx: number) => void;
+  onInspect: (targetId: string, molId: string) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('gnn_pk');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
@@ -349,6 +349,13 @@ function AnalyzeView({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const svgContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const inspectMol = (row: MoleculeRow) => {
+    const mid = molIdFromFile(row.file);
+    if (mid && target) {
+      onInspect(target, mid);
+    }
+  };
 
   const xDef = METRIC_DEFS[xMetric];
   const yDef = METRIC_DEFS[yMetric];
@@ -827,7 +834,7 @@ function AnalyzeView({
                           });
                         }
                       }}
-                      onClick={() => onInspect(p.originalIndex)}
+                      onClick={() => inspectMol(p.row)}
                     />
                   );
                 })}
@@ -851,7 +858,7 @@ function AnalyzeView({
                           });
                         }
                       }}
-                      onClick={() => onInspect(p.originalIndex)}
+                      onClick={() => inspectMol(p.row)}
                     >
                       {/* Pulsing halo ring */}
                       <circle
@@ -942,7 +949,13 @@ function AnalyzeView({
                         : 'Violations'}
                     </strong>
                   </div>
-                  <div className="pareto-tt-action">👉 Click to inspect conformer in 3D</div>
+                  <div
+                    className="pareto-tt-action"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => inspectMol(hoveredCandidate.row)}
+                  >
+                    👉 Click to inspect conformer in 3D
+                  </div>
                 </div>
               )}
             </div>
@@ -957,7 +970,7 @@ function AnalyzeView({
                   <button
                     key={`strip-${p.originalIndex}`}
                     className="pareto-quick-pill"
-                    onClick={() => onInspect(p.originalIndex)}
+                    onClick={() => inspectMol(p.row)}
                     title="Click to view 3D conformer in active site"
                   >
                     <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
@@ -1070,7 +1083,7 @@ function AnalyzeView({
                       </td>
                       <td>{r.n_heavy ?? '–'}</td>
                       <td>
-                        <button className="inspect-btn" onClick={() => onInspect(originalIndex)}>
+                        <button className="inspect-btn" onClick={() => inspectMol(r)}>
                           Inspect in 3D
                         </button>
                       </td>
@@ -1611,6 +1624,7 @@ export function App() {
   const canvasWrapRef= useRef<HTMLDivElement>(null);
   const viewerRef    = useRef<NebulaViewer | null>(null);
   const bindingRef   = useRef<HTMLDivElement>(null);
+  const pendingMolRef= useRef<string | null>(null);
 
   /* ─── Theme effect ─── */
   useEffect(() => {
@@ -1646,6 +1660,16 @@ export function App() {
     return () => { dead = true; viewerRef.current?.dispose(); viewerRef.current = null; };
   }, []);
 
+  /* ─── Refresh viewer when switching to explore tab ─── */
+  useEffect(() => {
+    if (activeTab === 'explore' && viewerRef.current) {
+      (viewerRef.current as any).dirty = true;
+      setTimeout(() => {
+        if (viewerRef.current) (viewerRef.current as any).dirty = true;
+      }, 50);
+    }
+  }, [activeTab]);
+
   /* ─── Load selected target ─── */
   useEffect(() => {
     if (!target) return;
@@ -1654,7 +1678,13 @@ export function App() {
     Promise.all([getManifest(target), getMolecules(target), getPocket(target)])
       .then(([m, mols, pk]) => {
         setManifest(m); setPocket(pk); setSummary(mols.summary);
-        setRows(mols.molecules.filter(r => r.valid && molIdFromFile(r.file)));
+        const valid = mols.molecules.filter(r => r.valid && molIdFromFile(r.file));
+        setRows(valid);
+        if (pendingMolRef.current) {
+          const pIdx = valid.findIndex(r => molIdFromFile(r.file) === pendingMolRef.current);
+          if (pIdx >= 0) setIdx(pIdx);
+          pendingMolRef.current = null;
+        }
         setBusy('');
       })
       .catch((e: Error) => { setError(e.message); setBusy(''); });
@@ -1904,7 +1934,21 @@ export function App() {
           target={target}
           targets={targets}
           onSelectTarget={id => setTarget(id)}
-          onInspect={i => { setIdx(i); setActiveTab('explore'); }}
+          onInspect={(tgtId, mid) => {
+            setActiveTab('explore');
+            if (tgtId && tgtId !== target) {
+              pendingMolRef.current = mid;
+              setTarget(tgtId);
+            } else {
+              const foundIdx = rows.findIndex(r => molIdFromFile(r.file) === mid);
+              if (foundIdx >= 0) {
+                setIdx(foundIdx);
+              }
+              if (viewerRef.current) {
+                (viewerRef.current as any).dirty = true;
+              }
+            }
+          }}
         />
       )}
       {activeTab === 'dataset' && (
@@ -1916,8 +1960,7 @@ export function App() {
       {activeTab === 'docs' && <DocsView />}
 
       {/* ══ EXPLORE VIEW (3-column studio) ══ */}
-      {activeTab === 'explore' && (
-        <div className="main-content">
+      <div className="main-content" style={{ display: activeTab === 'explore' ? undefined : 'none' }}>
 
           {/* ━━ LEFT ━━ */}
           <div className="col-left">
@@ -2460,7 +2503,6 @@ export function App() {
             </div>
           </div>
         </div>
-      )}
 
       {/* ══ FOOTER — PIPELINE ══ */}
       <footer className="footer-pipeline">
