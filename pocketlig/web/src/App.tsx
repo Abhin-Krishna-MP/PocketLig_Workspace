@@ -14,7 +14,7 @@ import {
   IcCube, IcMolecule, IcEye, IcZoomIn, IcZoomOut, IcRefresh, IcMaximize,
   IcArrowRight, IcCheck, IcSun, IcUser, IcActivity, IcDatabase, IcBook,
   IcTrendDown, IcFilter, IcClose, IcUpload, IcEdit, IcInfo, IcZap, IcWave,
-  IcBarChart, IcFlask,
+  IcBarChart, IcFlask, IcScatter, IcStar,
   IcMoon, IcSliders, IcTable, IcBookOpen, IcMinimize,
   IcFloppyDisk, IcExternalLink, IcGenerate, IcCopy,
 } from './Icons';
@@ -258,23 +258,162 @@ function GenerateView({ targets, initialTarget, onInspect, onGenerated }: {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ANALYZE VIEW COMPONENT
+   ANALYZE VIEW COMPONENT (PARETO MULTI-OBJECTIVE OPTIMIZATION)
    ═══════════════════════════════════════════════════════════ */
+const f = (v: number | null | undefined, d = 2) => (v == null ? '–' : v.toFixed(d));
+
 type SortKey = 'gnn_pk' | 'qed' | 'sa' | 'vina_score_only';
-function AnalyzeView({ rows, target, onInspect }: {
-  rows: MoleculeRow[]; target: string | null;
+type MetricKey = 'gnn_pk' | 'qed' | 'sa' | 'vina_score_only';
+
+interface MetricDef {
+  key: MetricKey;
+  label: string;
+  shortLabel: string;
+  unit: string;
+  higherIsBetter: boolean;
+}
+
+const METRIC_DEFS: Record<MetricKey, MetricDef> = {
+  qed: {
+    key: 'qed',
+    label: 'Drug-Likeness (QED ↑)',
+    shortLabel: 'QED',
+    unit: '',
+    higherIsBetter: true,
+  },
+  gnn_pk: {
+    key: 'gnn_pk',
+    label: 'Predicted Affinity (pKd ↑)',
+    shortLabel: 'pKd',
+    unit: '',
+    higherIsBetter: true,
+  },
+  vina_score_only: {
+    key: 'vina_score_only',
+    label: 'Docking Energy (Vina ↓)',
+    shortLabel: 'Docking',
+    unit: 'kcal/mol',
+    higherIsBetter: false,
+  },
+  sa: {
+    key: 'sa',
+    label: 'Synthesizability (SA ↓)',
+    shortLabel: 'SA Score',
+    unit: '',
+    higherIsBetter: false,
+  },
+};
+
+interface ParetoPoint {
+  originalIndex: number;
+  row: MoleculeRow;
+  x: number;
+  y: number;
+  isPareto: boolean;
+}
+
+function isStrictlyBetter(v1: number, v2: number, higherIsBetter: boolean): boolean {
+  return higherIsBetter ? v1 > v2 : v1 < v2;
+}
+
+function isBetterOrEqual(v1: number, v2: number, higherIsBetter: boolean): boolean {
+  return higherIsBetter ? v1 >= v2 : v1 <= v2;
+}
+
+function dominates(
+  aX: number, aY: number,
+  bX: number, bY: number,
+  xHigher: boolean, yHigher: boolean
+): boolean {
+  const xGeq = isBetterOrEqual(aX, bX, xHigher);
+  const yGeq = isBetterOrEqual(aY, bY, yHigher);
+  const xStrict = isStrictlyBetter(aX, bX, xHigher);
+  const yStrict = isStrictlyBetter(aY, bY, yHigher);
+  return xGeq && yGeq && (xStrict || yStrict);
+}
+
+function AnalyzeView({
+  rows, target, targets, onSelectTarget, onInspect,
+}: {
+  rows: MoleculeRow[];
+  target: string | null;
+  targets?: TargetSummary[];
+  onSelectTarget?: (id: string) => void;
   onInspect: (idx: number) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('gnn_pk');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [xMetric, setXMetric] = useState<MetricKey>('qed');
+  const [yMetric, setYMetric] = useState<MetricKey>('gnn_pk');
+  const [showParetoOnly, setShowParetoOnly] = useState(false);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const svgContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      const av = a[sortKey] ?? -Infinity;
-      const bv = b[sortKey] ?? -Infinity;
+  const xDef = METRIC_DEFS[xMetric];
+  const yDef = METRIC_DEFS[yMetric];
+
+  /* ─── Pareto Frontier Calculation ─── */
+  const validPoints: ParetoPoint[] = useMemo(() => {
+    const raw = rows
+      .map((r, idx) => {
+        const xv = r[xMetric];
+        const yv = r[yMetric];
+        if (xv == null || yv == null || isNaN(Number(xv)) || isNaN(Number(yv))) return null;
+        return {
+          originalIndex: idx,
+          row: r,
+          x: Number(xv),
+          y: Number(yv),
+          isPareto: false,
+        };
+      })
+      .filter((p): p is ParetoPoint => p !== null);
+
+    return raw.map((p, i, arr) => {
+      const isDominated = arr.some((other, j) => {
+        if (i === j) return false;
+        return dominates(other.x, other.y, p.x, p.y, xDef.higherIsBetter, yDef.higherIsBetter);
+      });
+      return { ...p, isPareto: !isDominated };
+    });
+  }, [rows, xMetric, yMetric, xDef, yDef]);
+
+  const paretoPoints = useMemo(() => validPoints.filter(p => p.isPareto), [validPoints]);
+  const paretoIndexSet = useMemo(() => new Set(paretoPoints.map(p => p.originalIndex)), [paretoPoints]);
+
+  /* ─── Sorted Pareto Frontier Line ─── */
+  const sortedPareto = useMemo(() => {
+    return [...paretoPoints].sort((a, b) => a.x - b.x);
+  }, [paretoPoints]);
+
+  /* ─── KPI Metrics ─── */
+  const paretoCount = paretoPoints.length;
+  const totalCount = rows.length;
+  const maxAffinity = useMemo(() => {
+    const vals = rows.map(r => r.gnn_pk).filter((v): v is number => v != null);
+    return vals.length ? Math.max(...vals) : 0;
+  }, [rows]);
+  const maxQed = useMemo(() => {
+    const vals = rows.map(r => r.qed).filter((v): v is number => v != null);
+    return vals.length ? Math.max(...vals) : 0;
+  }, [rows]);
+  const lipinskiPassCount = useMemo(() => {
+    return rows.filter(r => !r.errors || Object.keys(r.errors).length === 0).length;
+  }, [rows]);
+
+  /* ─── Table Sorting & Filtering ─── */
+  const tableRows = useMemo(() => {
+    let list = rows.map((r, idx) => ({ row: r, originalIndex: idx }));
+    if (showParetoOnly) {
+      list = list.filter(item => paretoIndexSet.has(item.originalIndex));
+    }
+    return list.sort((a, b) => {
+      const av = a.row[sortKey] ?? -Infinity;
+      const bv = b.row[sortKey] ?? -Infinity;
       return sortDir === 'desc' ? (bv as number) - (av as number) : (av as number) - (bv as number);
     });
-  }, [rows, sortKey, sortDir]);
+  }, [rows, sortKey, sortDir, showParetoOnly, paretoIndexSet]);
 
   function toggleSort(k: SortKey) {
     if (sortKey === k) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
@@ -282,34 +421,127 @@ function AnalyzeView({ rows, target, onInspect }: {
   }
 
   function exportCSV() {
-    const header = 'Candidate,SMILES,pKd,QED,SA,Docking Score,Lipinski Violations';
-    const body = sorted.map((r, i) => [
-      i + 1, `"${r.smiles ?? ''}"`, r.gnn_pk ?? '', r.qed ?? '', r.sa ?? '',
-      r.vina_score_only ?? '', r.errors ? '' : 0,
+    const header = 'Candidate,SMILES,pKd,QED,SA,Docking Score,Lipinski Violations,IsParetoOptimal';
+    const body = tableRows.map(({ row: r, originalIndex }) => [
+      originalIndex + 1,
+      `"${r.smiles ?? ''}"`,
+      r.gnn_pk ?? '',
+      r.qed ?? '',
+      r.sa ?? '',
+      r.vina_score_only ?? '',
+      r.errors && Object.keys(r.errors).length ? Object.keys(r.errors).join(';') : 'Pass',
+      paretoIndexSet.has(originalIndex) ? 'TRUE' : 'FALSE',
     ].join(',')).join('\n');
     const blob = new Blob([header + '\n' + body], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${target ?? 'target'}_candidates.csv`;
+    a.download = `${target ?? 'target'}_pareto_candidates.csv`;
     a.click();
   }
+
+  /* ─── SVG Coordinate System ─── */
+  const W = 800;
+  const H = 340;
+  const padLeft = 60;
+  const padRight = 40;
+  const padTop = 35;
+  const padBottom = 50;
+  const pw = W - padLeft - padRight;
+  const ph = H - padTop - padBottom;
+
+  const { xMin, xMax, yMin, yMax } = useMemo(() => {
+    if (validPoints.length === 0) {
+      return { xMin: 0, xMax: 1, yMin: 0, yMax: 10 };
+    }
+    const xs = validPoints.map(p => p.x);
+    const ys = validPoints.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const xSpan = maxX - minX || 0.1;
+    const ySpan = maxY - minY || 0.1;
+    return {
+      xMin: minX - xSpan * 0.1,
+      xMax: maxX + xSpan * 0.1,
+      yMin: minY - ySpan * 0.1,
+      yMax: maxY + ySpan * 0.1,
+    };
+  }, [validPoints]);
+
+  const scaleX = useCallback((v: number) => {
+    const span = xMax - xMin || 1;
+    return padLeft + ((v - xMin) / span) * pw;
+  }, [xMin, xMax, pw, padLeft]);
+
+  const scaleY = useCallback((v: number) => {
+    const span = yMax - yMin || 1;
+    return padTop + ph - ((v - yMin) / span) * ph;
+  }, [yMin, yMax, ph, padTop]);
+
+  const xTicks = useMemo(() => {
+    const count = 5;
+    const res: number[] = [];
+    for (let i = 0; i <= count; i++) {
+      res.push(xMin + (i / count) * (xMax - xMin));
+    }
+    return res;
+  }, [xMin, xMax]);
+
+  const yTicks = useMemo(() => {
+    const count = 5;
+    const res: number[] = [];
+    for (let i = 0; i <= count; i++) {
+      res.push(yMin + (i / count) * (yMax - yMin));
+    }
+    return res;
+  }, [yMin, yMax]);
+
+  const frontierLine = useMemo(() => {
+    if (sortedPareto.length === 0) return '';
+    return sortedPareto
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${scaleX(p.x).toFixed(1)} ${scaleY(p.y).toFixed(1)}`)
+      .join(' ');
+  }, [sortedPareto, scaleX, scaleY]);
+
+  const hoveredCandidate = useMemo(() => {
+    if (hoveredIdx == null) return null;
+    return validPoints.find(p => p.originalIndex === hoveredIdx) ?? null;
+  }, [hoveredIdx, validPoints]);
 
   const SortArrow = ({ k }: { k: SortKey }) => sortKey === k
     ? <span className="sort-arrow">{sortDir === 'desc' ? '↓' : '↑'}</span>
     : <span className="sort-arrow" style={{ opacity: 0.2 }}>↕</span>;
 
   return (
-    <div className="fullview">
+    <div className="fullview analyze-fullview">
+      {/* ─── Top Header ─── */}
       <div className="fullview-hdr">
         <div>
           <div className="fullview-title">
-            <span className="fullview-title-icon"><IcTable size={18} /></span>
-            Candidate Analysis
-            {target && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--mut)', marginLeft: 8 }}>— {target.toUpperCase()}</span>}
+            <span className="fullview-title-icon"><IcScatter size={18} /></span>
+            Multi-Objective Pareto Analysis
+            {target && <span className="analyze-target-badge">{target.toUpperCase()}</span>}
           </div>
-          <div className="fullview-sub">{rows.length} valid candidates · Sortable comparison table</div>
+          <div className="fullview-sub">
+            {rows.length} candidates evaluated · Binding affinity vs drug-likeness trade-off frontier
+          </div>
         </div>
         <div className="fullview-actions">
+          {targets && targets.length > 0 && onSelectTarget && (
+            <select
+              className="pareto-sel"
+              value={target ?? ''}
+              onChange={e => onSelectTarget(e.target.value)}
+              style={{ height: 32, padding: '0 10px', fontWeight: 600 }}
+            >
+              {targets.map(t => (
+                <option key={t.id} value={t.id}>
+                  Target {t.id.toUpperCase()} ({t.n_molecules} cands)
+                </option>
+              ))}
+            </select>
+          )}
           <button className="btn-secondary" style={{ fontSize: 12, padding: '7px 14px' }} onClick={exportCSV}>
             <IcDownload size={12} style={{ marginRight: 5 }} /> Export CSV
           </button>
@@ -317,65 +549,537 @@ function AnalyzeView({ rows, target, onInspect }: {
       </div>
 
       {rows.length === 0 ? (
-        <p style={{ color: 'var(--mut)', fontSize: 13 }}>Select a target on the Explore tab first to load candidates.</p>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--mut)' }}>
+          <IcTarget size={32} style={{ opacity: 0.35, marginBottom: 12 }} />
+          <p style={{ fontSize: 14 }}>Select a target on the Explore tab first to load candidates.</p>
+        </div>
       ) : (
-        <div className="analyze-table-wrap">
-          <table className="analyze-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>2D Structure</th>
-                <th className={sortKey === 'gnn_pk' ? 'sorted' : ''} onClick={() => toggleSort('gnn_pk')}>
-                  Predicted pKd <SortArrow k="gnn_pk" />
-                </th>
-                <th className={sortKey === 'qed' ? 'sorted' : ''} onClick={() => toggleSort('qed')}>
-                  QED <SortArrow k="qed" />
-                </th>
-                <th className={sortKey === 'sa' ? 'sorted' : ''} onClick={() => toggleSort('sa')}>
-                  SA Score <SortArrow k="sa" />
-                </th>
-                <th className={sortKey === 'vina_score_only' ? 'sorted' : ''} onClick={() => toggleSort('vina_score_only')}>
-                  Docking (Vina) <SortArrow k="vina_score_only" />
-                </th>
-                <th>Lipinski</th>
-                <th>Heavy Atoms</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((r, i) => {
-                const molIdx = rows.indexOf(r);
-                return (
-                  <tr key={i}>
-                    <td><span className="mol-num">#{i + 1}</span></td>
-                    <td>
-                      {r.smiles
-                        ? <div style={{ width: 80, height: 52, background: 'var(--panel2)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'var(--mut)', padding: 2 }}>
-                            {r.smiles.slice(0, 20)}…
+        <div className="analyze-scroll-content">
+          {/* ─── KPI Metric Summary Cards ─── */}
+          <div className="analyze-kpi-grid">
+            <div className="analyze-kpi-card">
+              <div className="kpi-label">Total Candidates</div>
+              <div className="kpi-val">{totalCount}</div>
+              <div className="kpi-sub">SE(3) diffusion generated</div>
+            </div>
+            <div className="analyze-kpi-card kpi-card-gold">
+              <div className="kpi-label">
+                <IcStar size={12} style={{ color: 'var(--gold)' }} />
+                ★ Pareto Optimal
+              </div>
+              <div className="kpi-val text-gold">
+                {paretoCount}
+                <span className="kpi-percent">
+                  ({totalCount ? Math.round((paretoCount / totalCount) * 100) : 0}%)
+                </span>
+              </div>
+              <div className="kpi-sub">Non-dominated lead molecules</div>
+            </div>
+            <div className="analyze-kpi-card">
+              <div className="kpi-label">Top Affinity (pKd)</div>
+              <div className="kpi-val text-gold">{maxAffinity.toFixed(2)}</div>
+              <div className="kpi-sub">Maximum predicted binding</div>
+            </div>
+            <div className="analyze-kpi-card">
+              <div className="kpi-label">Top Drug-Likeness (QED)</div>
+              <div className="kpi-val text-gn">{maxQed.toFixed(2)}</div>
+              <div className="kpi-sub">Maximum oral bioavailability</div>
+            </div>
+            <div className="analyze-kpi-card">
+              <div className="kpi-label">Lipinski Ro5 Pass</div>
+              <div className="kpi-val text-cy">
+                {totalCount ? Math.round((lipinskiPassCount / totalCount) * 100) : 0}%
+              </div>
+              <div className="kpi-sub">{lipinskiPassCount} / {totalCount} compliant</div>
+            </div>
+          </div>
+
+          {/* ─── Interactive Pareto Scatter Plot ─── */}
+          <div className="pareto-chart-panel">
+            <div className="pareto-chart-hdr">
+              <div className="pareto-chart-title">
+                <IcScatter size={15} style={{ color: 'var(--gold)' }} />
+                <span>Pareto Trade-Off Frontier</span>
+                <span className="pareto-legend-pill pareto-pill-gold">
+                  <span className="pareto-legend-dot gold" /> Non-Dominated ({paretoCount})
+                </span>
+                <span className="pareto-legend-pill">
+                  <span className="pareto-legend-dot cyan" /> Dominated ({validPoints.length - paretoCount})
+                </span>
+              </div>
+
+              <div className="pareto-chart-controls">
+                <div className="pareto-control-group">
+                  <span className="pareto-ctrl-lbl">X-Axis:</span>
+                  <select
+                    value={xMetric}
+                    onChange={e => setXMetric(e.target.value as MetricKey)}
+                    className="pareto-sel"
+                  >
+                    <option value="qed">Drug-Likeness (QED ↑)</option>
+                    <option value="sa">Synthesizability (SA ↓)</option>
+                    <option value="vina_score_only">Docking Energy (Vina ↓)</option>
+                  </select>
+                </div>
+
+                <div className="pareto-control-group">
+                  <span className="pareto-ctrl-lbl">Y-Axis:</span>
+                  <select
+                    value={yMetric}
+                    onChange={e => setYMetric(e.target.value as MetricKey)}
+                    className="pareto-sel"
+                  >
+                    <option value="gnn_pk">Predicted Affinity (pKd ↑)</option>
+                    <option value="vina_score_only">Docking Energy (Vina ↓)</option>
+                    <option value="qed">Drug-Likeness (QED ↑)</option>
+                  </select>
+                </div>
+
+                <button
+                  className={`pareto-filter-btn ${showParetoOnly ? 'active' : ''}`}
+                  onClick={() => setShowParetoOnly(v => !v)}
+                  title="Filter candidate table to only show non-dominated solutions"
+                >
+                  <IcStar size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                  {showParetoOnly ? 'Showing Frontier Only' : 'Filter Frontier Only'}
+                </button>
+              </div>
+            </div>
+
+            {/* SVG Visualizer */}
+            <div
+              className="pareto-svg-container"
+              ref={svgContainerRef}
+              onMouseLeave={() => { setHoveredIdx(null); setTooltipPos(null); }}
+            >
+              <svg viewBox={`0 0 ${W} ${H}`} className="pareto-svg">
+                <defs>
+                  <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                  <linearGradient id="frontierFillGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.18" />
+                    <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.01" />
+                  </linearGradient>
+                </defs>
+
+                {/* Gridlines: Horizontal (Y) */}
+                {yTicks.map((tick, i) => {
+                  const y = scaleY(tick);
+                  return (
+                    <g key={`y-${i}`}>
+                      <line
+                        x1={padLeft}
+                        y1={y}
+                        x2={padLeft + pw}
+                        y2={y}
+                        stroke="rgba(255,255,255,0.06)"
+                        strokeDasharray="3 3"
+                      />
+                      <text
+                        x={padLeft - 10}
+                        y={y + 3.5}
+                        fill="var(--mut)"
+                        fontSize="10"
+                        fontFamily="monospace"
+                        textAnchor="end"
+                      >
+                        {tick.toFixed(1)}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Gridlines: Vertical (X) */}
+                {xTicks.map((tick, i) => {
+                  const x = scaleX(tick);
+                  return (
+                    <g key={`x-${i}`}>
+                      <line
+                        x1={x}
+                        y1={padTop}
+                        x2={x}
+                        y2={padTop + ph}
+                        stroke="rgba(255,255,255,0.06)"
+                        strokeDasharray="3 3"
+                      />
+                      <text
+                        x={x}
+                        y={padTop + ph + 18}
+                        fill="var(--mut)"
+                        fontSize="10"
+                        fontFamily="monospace"
+                        textAnchor="middle"
+                      >
+                        {tick.toFixed(2)}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Axes Lines */}
+                <line
+                  x1={padLeft}
+                  y1={padTop + ph}
+                  x2={padLeft + pw}
+                  y2={padTop + ph}
+                  stroke="var(--border2)"
+                  strokeWidth="1.5"
+                />
+                <line
+                  x1={padLeft}
+                  y1={padTop}
+                  x2={padLeft}
+                  y2={padTop + ph}
+                  stroke="var(--border2)"
+                  strokeWidth="1.5"
+                />
+
+                {/* Axis Labels */}
+                <text
+                  x={padLeft + pw / 2}
+                  y={padTop + ph + 38}
+                  fill="var(--mut2)"
+                  fontSize="11"
+                  fontWeight="600"
+                  textAnchor="middle"
+                >
+                  {xDef.label} {xDef.unit ? `(${xDef.unit})` : ''} →
+                </text>
+                <text
+                  transform={`rotate(-90)`}
+                  x={-(padTop + ph / 2)}
+                  y={18}
+                  fill="var(--mut2)"
+                  fontSize="11"
+                  fontWeight="600"
+                  textAnchor="middle"
+                >
+                  ← {yDef.label} {yDef.unit ? `(${yDef.unit})` : ''}
+                </text>
+
+                {/* Pareto Frontier Line */}
+                {frontierLine && (
+                  <path
+                    d={frontierLine}
+                    fill="none"
+                    stroke="var(--gold)"
+                    strokeWidth="2.5"
+                    strokeDasharray="5 3"
+                    filter="url(#goldGlow)"
+                    opacity="0.9"
+                  />
+                )}
+
+                {/* Crosshairs for Hovered Candidate */}
+                {hoveredCandidate && (
+                  <g pointerEvents="none">
+                    <line
+                      x1={padLeft}
+                      y1={scaleY(hoveredCandidate.y)}
+                      x2={padLeft + pw}
+                      y2={scaleY(hoveredCandidate.y)}
+                      stroke="var(--gold)"
+                      strokeWidth="1"
+                      strokeDasharray="2 2"
+                      opacity="0.5"
+                    />
+                    <line
+                      x1={scaleX(hoveredCandidate.x)}
+                      y1={padTop}
+                      x2={scaleX(hoveredCandidate.x)}
+                      y2={padTop + ph}
+                      stroke="var(--gold)"
+                      strokeWidth="1"
+                      strokeDasharray="2 2"
+                      opacity="0.5"
+                    />
+                  </g>
+                )}
+
+                {/* Dominated Points */}
+                {validPoints.filter(p => !p.isPareto).map(p => {
+                  const cx = scaleX(p.x);
+                  const cy = scaleY(p.y);
+                  const isHovered = hoveredIdx === p.originalIndex;
+                  return (
+                    <circle
+                      key={`pt-${p.originalIndex}`}
+                      cx={cx}
+                      cy={cy}
+                      r={isHovered ? 8 : 5}
+                      fill={isHovered ? '#60a5fa' : '#38bdf8'}
+                      fillOpacity={0.8}
+                      stroke="#070c14"
+                      strokeWidth={1.5}
+                      style={{ cursor: 'pointer', transition: 'r .12s, fill .12s' }}
+                      onMouseEnter={e => {
+                        setHoveredIdx(p.originalIndex);
+                        const rect = svgContainerRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setTooltipPos({
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top,
+                          });
+                        }
+                      }}
+                      onClick={() => onInspect(p.originalIndex)}
+                    />
+                  );
+                })}
+
+                {/* Pareto Optimal Points */}
+                {validPoints.filter(p => p.isPareto).map(p => {
+                  const cx = scaleX(p.x);
+                  const cy = scaleY(p.y);
+                  const isHovered = hoveredIdx === p.originalIndex;
+                  return (
+                    <g
+                      key={`pareto-${p.originalIndex}`}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={e => {
+                        setHoveredIdx(p.originalIndex);
+                        const rect = svgContainerRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setTooltipPos({
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top,
+                          });
+                        }
+                      }}
+                      onClick={() => onInspect(p.originalIndex)}
+                    >
+                      {/* Pulsing halo ring */}
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={isHovered ? 14 : 10}
+                        fill="rgba(245, 158, 11, 0.22)"
+                        stroke="var(--gold)"
+                        strokeWidth="1.2"
+                      />
+                      {/* Core point */}
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={isHovered ? 7 : 5.5}
+                        fill="var(--gold)"
+                        stroke="#ffffff"
+                        strokeWidth="1.5"
+                      />
+                      {/* Label */}
+                      <text
+                        x={cx}
+                        y={cy - 12}
+                        fill="var(--gold)"
+                        fontSize="9.5"
+                        fontWeight="700"
+                        textAnchor="middle"
+                        filter="url(#goldGlow)"
+                      >
+                        #{p.originalIndex + 1}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+
+              {/* Floating Tooltip */}
+              {hoveredCandidate && tooltipPos && (
+                <div
+                  className="pareto-tooltip"
+                  style={{
+                    left: `${tooltipPos.x}px`,
+                    top: `${tooltipPos.y}px`,
+                  }}
+                >
+                  <div className="pareto-tt-title">
+                    <span>Candidate #{hoveredCandidate.originalIndex + 1}</span>
+                    <span
+                      className={`pareto-tt-badge ${hoveredCandidate.isPareto ? 'pareto' : 'dominated'}`}
+                    >
+                      {hoveredCandidate.isPareto ? '★ Pareto Optimal' : 'Dominated'}
+                    </span>
+                  </div>
+                  <div className="pareto-tt-row">
+                    <span>Predicted pKd:</span>
+                    <strong>{f(hoveredCandidate.row.gnn_pk)}</strong>
+                  </div>
+                  <div className="pareto-tt-row">
+                    <span>Drug-likeness (QED):</span>
+                    <strong>{f(hoveredCandidate.row.qed)}</strong>
+                  </div>
+                  <div className="pareto-tt-row">
+                    <span>Synthesizability (SA):</span>
+                    <strong>{f(hoveredCandidate.row.sa)}</strong>
+                  </div>
+                  <div className="pareto-tt-row">
+                    <span>Docking Energy (Vina):</span>
+                    <strong>
+                      {hoveredCandidate.row.vina_score_only != null
+                        ? `${f(hoveredCandidate.row.vina_score_only, 1)} kcal/mol`
+                        : '–'}
+                    </strong>
+                  </div>
+                  <div className="pareto-tt-row">
+                    <span>Lipinski Rule of 5:</span>
+                    <strong
+                      style={{
+                        color:
+                          !hoveredCandidate.row.errors ||
+                          Object.keys(hoveredCandidate.row.errors).length === 0
+                            ? 'var(--gn)'
+                            : 'var(--rd)',
+                      }}
+                    >
+                      {!hoveredCandidate.row.errors ||
+                      Object.keys(hoveredCandidate.row.errors).length === 0
+                        ? 'Pass'
+                        : 'Violations'}
+                    </strong>
+                  </div>
+                  <div className="pareto-tt-action">👉 Click to inspect conformer in 3D</div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Badges for Pareto-Optimal Hits */}
+            {sortedPareto.length > 0 && (
+              <div className="pareto-pill-strip">
+                <span className="pareto-pill-strip-label">
+                  <IcStar size={12} /> Pareto Frontier Leads:
+                </span>
+                {sortedPareto.map(p => (
+                  <button
+                    key={`strip-${p.originalIndex}`}
+                    className="pareto-quick-pill"
+                    onClick={() => onInspect(p.originalIndex)}
+                    title="Click to view 3D conformer in active site"
+                  >
+                    <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
+                      #{p.originalIndex + 1}
+                    </span>
+                    <span>pKd: {f(p.row.gnn_pk)}</span>
+                    <span style={{ color: 'var(--gn)' }}>QED: {f(p.row.qed)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ─── Multi-Objective Comparison Table ─── */}
+          <div className="analyze-table-wrap">
+            <table className="analyze-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Classification</th>
+                  <th>2D SMILES Structure</th>
+                  <th
+                    className={sortKey === 'gnn_pk' ? 'sorted' : ''}
+                    onClick={() => toggleSort('gnn_pk')}
+                  >
+                    Predicted pKd <SortArrow k="gnn_pk" />
+                  </th>
+                  <th
+                    className={sortKey === 'qed' ? 'sorted' : ''}
+                    onClick={() => toggleSort('qed')}
+                  >
+                    QED <SortArrow k="qed" />
+                  </th>
+                  <th
+                    className={sortKey === 'sa' ? 'sorted' : ''}
+                    onClick={() => toggleSort('sa')}
+                  >
+                    SA Score <SortArrow k="sa" />
+                  </th>
+                  <th
+                    className={sortKey === 'vina_score_only' ? 'sorted' : ''}
+                    onClick={() => toggleSort('vina_score_only')}
+                  >
+                    Docking (Vina) <SortArrow k="vina_score_only" />
+                  </th>
+                  <th>Lipinski</th>
+                  <th>Heavy Atoms</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map(({ row: r, originalIndex }) => {
+                  const isPareto = paretoIndexSet.has(originalIndex);
+                  const isHovered = hoveredIdx === originalIndex;
+                  return (
+                    <tr
+                      key={originalIndex}
+                      className={isHovered ? 'selected' : ''}
+                      onMouseEnter={() => setHoveredIdx(originalIndex)}
+                      onMouseLeave={() => setHoveredIdx(null)}
+                    >
+                      <td>
+                        <span className="mol-num">#{originalIndex + 1}</span>
+                      </td>
+                      <td>
+                        {isPareto ? (
+                          <span className="pareto-tag">★ Pareto Optimal</span>
+                        ) : (
+                          <span style={{ color: 'var(--mut)', fontSize: 10 }}>Dominated</span>
+                        )}
+                      </td>
+                      <td>
+                        {r.smiles ? (
+                          <div
+                            style={{
+                              width: 80,
+                              height: 48,
+                              background: 'var(--panel2)',
+                              borderRadius: 6,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 9,
+                              color: 'var(--mut)',
+                              padding: 4,
+                              fontFamily: 'monospace',
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            {r.smiles.slice(0, 18)}…
                           </div>
-                        : <span style={{ color: 'var(--mut)', fontSize: 11 }}>–</span>
-                      }
-                    </td>
-                    <td style={{ color: 'var(--gold)', fontWeight: 700 }}>{f(r.gnn_pk)}</td>
-                    <td style={{ color: 'var(--gn)', fontWeight: 600 }}>{f(r.qed)}</td>
-                    <td style={{ color: 'var(--or)' }}>{f(r.sa)}</td>
-                    <td style={{ color: 'var(--bl)' }}>{r.vina_score_only != null ? `${f(r.vina_score_only, 1)} kcal/mol` : '–'}</td>
-                    <td>
-                      <span className={r.errors && Object.keys(r.errors).length === 0 ? 'val-pass' : 'val-fail'}>
-                        {r.errors && Object.keys(r.errors).length === 0 ? '✓ Pass' : '✗ Fail'}
-                      </span>
-                    </td>
-                    <td>{r.n_heavy ?? '–'}</td>
-                    <td>
-                      <button className="inspect-btn" onClick={() => onInspect(molIdx)}>
-                        Inspect in 3D
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        ) : (
+                          <span style={{ color: 'var(--mut)', fontSize: 11 }}>–</span>
+                        )}
+                      </td>
+                      <td style={{ color: 'var(--gold)', fontWeight: 700 }}>{f(r.gnn_pk)}</td>
+                      <td style={{ color: 'var(--gn)', fontWeight: 600 }}>{f(r.qed)}</td>
+                      <td style={{ color: 'var(--or)' }}>{f(r.sa)}</td>
+                      <td style={{ color: 'var(--bl)' }}>
+                        {r.vina_score_only != null ? `${f(r.vina_score_only, 1)} kcal/mol` : '–'}
+                      </td>
+                      <td>
+                        <span
+                          className={
+                            r.errors && Object.keys(r.errors).length === 0 ? 'val-pass' : 'val-fail'
+                          }
+                        >
+                          {r.errors && Object.keys(r.errors).length === 0 ? '✓ Pass' : '✗ Violations'}
+                        </span>
+                      </td>
+                      <td>{r.n_heavy ?? '–'}</td>
+                      <td>
+                        <button className="inspect-btn" onClick={() => onInspect(originalIndex)}>
+                          Inspect in 3D
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
@@ -764,7 +1468,6 @@ function FilterPopover({ sortKey, sortDir, lipinskiOnly, onSortChange, onLipinsk
     </div>
   );
 }
-const f = (v: number | null | undefined, d = 2) => (v == null ? '–' : v.toFixed(d));
 
 const EL_COLOR: Record<string, string> = {
   C: '#b9c1d0', N: '#5b86ff', O: '#ff5d4d', S: '#f5c542',
@@ -1199,6 +1902,8 @@ export function App() {
         <AnalyzeView
           rows={filteredRows}
           target={target}
+          targets={targets}
+          onSelectTarget={id => setTarget(id)}
           onInspect={i => { setIdx(i); setActiveTab('explore'); }}
         />
       )}
